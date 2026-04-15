@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>{{company.name}} — Damage Report {{reportId}}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Roboto+Mono:wght@400;600&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 13px; }
+  body { font-family: 'Inter', -apple-system, sans-serif; color: #0F172A; line-height: 1.55; background: #fff; }
+
+  /* ── Page structure ── */
+  .page-wrap { max-width: 760px; margin: 0 auto; padding: 48px 52px; }
+
+  /* ── Header ── */
+  .report-header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding-bottom: 22px; margin-bottom: 28px;
+    border-bottom: 3px solid #06B6D4;
+  }
+  .company-name { font-size: 22px; font-weight: 800; color: #0F172A; letter-spacing: -0.4px; margin-bottom: 4px; }
+  .company-sub { font-size: 11.5px; color: #64748B; line-height: 1.6; }
+  .report-label { font-size: 20px; font-weight: 800; color: #06B6D4; letter-spacing: 1.5px; text-align: right; margin-bottom: 6px; }
+  .report-meta { font-size: 11px; color: #94A3B8; text-align: right; line-height: 1.7; font-family: 'Roboto Mono', monospace; }
+
+  {{#if watermark}}
+  .watermark {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-35deg);
+    font-size: 96px; font-weight: 900; color: rgba(239, 68, 68, 0.06);
+    letter-spacing: 8px; white-space: nowrap; pointer-events: none; z-index: 0;
+  }
+  {{/if}}
+
+  /* ── Project Summary Card ── */
+  .summary-card {
+    background: #F0FDFA; border: 1px solid #99F6E4;
+    border-radius: 10px; padding: 18px 20px; margin-bottom: 24px;
+  }
+  .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 20px; }
+  .summary-field label { font-size: 9.5px; font-weight: 700; color: #0891B2; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 3px; }
+  .summary-field span { font-size: 13.5px; color: #0F172A; font-weight: 500; }
+  .summary-field.mono span { font-family: 'Roboto Mono', monospace; font-size: 12px; }
+
+  /* ── KPI strip ── */
+  .kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 26px; }
+  .kpi-box { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 14px; text-align: center; }
+  .kpi-box .val { font-size: 20px; font-weight: 800; color: #0F172A; font-family: 'Roboto Mono', monospace; }
+  .kpi-box .lbl { font-size: 10px; color: #94A3B8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; margin-top: 3px; }
+  .kpi-box.warn .val { color: #DC2626; }
+
+  /* ── Section titles ── */
+  .section-title {
+    font-size: 10px; font-weight: 700; color: #06B6D4;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    margin: 28px 0 14px; padding-bottom: 6px;
+    border-bottom: 1.5px solid #E0F2FE;
+  }
+
+  /* ── Narrative block ── */
+  .narrative {
+    background: linear-gradient(135deg, #F0FDFA 0%, #EFF6FF 100%);
+    border-left: 3px solid #06B6D4;
+    border-radius: 0 8px 8px 0; padding: 14px 18px;
+    font-size: 13.5px; line-height: 1.85; color: #1E293B;
+    margin-bottom: 18px;
+  }
+  .narrative-label { font-size: 10px; font-weight: 700; color: #0891B2; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; display: flex; align-items: center; gap: 5px; }
+
+  /* ── Room cards ── */
+  .room-card { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 9px; padding: 16px 18px; margin-bottom: 18px; break-inside: avoid; }
+  .room-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+  .room-name { font-size: 15px; font-weight: 700; color: #0F172A; }
+  .room-meta { font-size: 11.5px; color: #64748B; margin-top: 2px; }
+  .room-score { text-align: right; }
+  .room-score .score-val { font-size: 16px; font-weight: 800; font-family: 'Roboto Mono', monospace; }
+  .room-score .score-lbl { font-size: 10px; color: #94A3B8; margin-top: 1px; }
+  .score-critical { color: #DC2626; }
+  .score-severe { color: #EA580C; }
+  .score-moderate { color: #D97706; }
+  .score-minor { color: #10B981; }
+
+  /* ── Photo grid ── */
+  .photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0; }
+  .photo-item img { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 6px; display: block; border: 1px solid #E2E8F0; }
+  .photo-caption { font-size: 10px; color: #64748B; margin-top: 4px; text-align: center; line-height: 1.3; }
+  .photo-mc { font-size: 9.5px; font-family: 'Roboto Mono', monospace; color: #94A3B8; }
+
+  /* ── Moisture table ── */
+  .moisture-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 12px 0; }
+  .moisture-table th { font-size: 9.5px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; padding: 7px 10px; border-bottom: 1px solid #E2E8F0; text-align: left; background: #F1F5F9; }
+  .moisture-table td { padding: 8px 10px; border-bottom: 1px solid #F1F5F9; color: #1E293B; }
+  .moisture-table tr:last-child td { border-bottom: none; }
+  .mc-badge { display: inline-block; padding: 2px 7px; border-radius: 100px; font-size: 11px; font-weight: 700; font-family: 'Roboto Mono', monospace; }
+  .mc-dry { color: #059669; background: #D1FAE5; }
+  .mc-med { color: #D97706; background: #FEF3C7; }
+  .mc-wet { color: #EA580C; background: #FFEDD5; }
+  .mc-sat { color: #DC2626; background: #FEE2E2; }
+
+  /* ── Equipment table ── */
+  .eq-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 12px 0; }
+  .eq-table th { font-size: 9.5px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; padding: 7px 10px; border-bottom: 1px solid #E2E8F0; text-align: left; background: #F1F5F9; }
+  .eq-table td { padding: 8px 10px; border-bottom: 1px solid #F1F5F9; color: #1E293B; }
+
+  /* ── Milestones ── */
+  .milestone-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #F1F5F9; }
+  .ms-dot-done { width: 16px; height: 16px; border-radius: 50%; background: #10B981; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .ms-dot-pending { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #CBD5E1; flex-shrink: 0; }
+  .ms-label { flex: 1; font-size: 12.5px; color: #1E293B; }
+  .ms-date { font-size: 11px; color: #94A3B8; }
+  .ms-status { font-size: 11px; font-weight: 700; }
+  .ms-done { color: #10B981; }
+  .ms-pending { color: #94A3B8; }
+
+  /* ── Progress bar ── */
+  .progress-wrap { margin: 12px 0 18px; }
+  .progress-label { display: flex; justify-content: space-between; font-size: 11.5px; color: #64748B; margin-bottom: 5px; }
+  .progress-bar { height: 6px; background: #E2E8F0; border-radius: 3px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #06B6D4, #0891B2); }
+
+  /* ── Signatures ── */
+  .sig-block { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; display: flex; gap: 20px; align-items: flex-start; }
+  .sig-image { max-height: 60px; border: 1px solid #E2E8F0; border-radius: 5px; background: #fff; padding: 4px; }
+  .sig-meta { flex: 1; }
+  .sig-name { font-size: 14px; font-weight: 700; color: #0F172A; margin-bottom: 3px; }
+  .sig-type { font-size: 11px; color: #64748B; margin-bottom: 6px; }
+  .sig-time { font-size: 10.5px; font-family: 'Roboto Mono', monospace; color: #94A3B8; }
+  .sig-verified { display: inline-flex; align-items: center; gap: 5px; background: #D1FAE5; color: #059669; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 100px; margin-left: 8px; }
+
+  /* ── Footer ── */
+  .report-footer { margin-top: 36px; padding-top: 14px; border-top: 2px solid #06B6D4; display: flex; justify-content: space-between; font-size: 11px; color: #94A3B8; }
+  .footer-compliance { font-size: 10.5px; color: #CBD5E1; margin-top: 8px; text-align: center; }
+
+  /* ── Print ── */
+  @media print {
+    .page-wrap { padding: 0; max-width: 100%; }
+    .room-card { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+{{#if watermark}}<div class="watermark">{{watermark}}</div>{{/if}}
+
+<div class="page-wrap">
+
+  <!-- ── HEADER ── -->
+  <div class="report-header">
+    <div>
+      <div class="company-name">{{company.name}}</div>
+      <div class="company-sub">
+        {{company.address}}<br>
+        {{company.phone}} · {{company.email}}<br>
+        <span style="font-family:'Roboto Mono',monospace;font-size:10.5px;color:#94A3B8;">{{company.licenseNumber}}</span>
+      </div>
+    </div>
+    <div>
+      <div class="report-label">DAMAGE REPORT</div>
+      <div class="report-meta">
+        Report ID: {{reportId}}<br>
+        Date: {{formatDate generatedAt}}<br>
+        Type: {{project.type}}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PROJECT SUMMARY ── -->
+  <div class="summary-card">
+    <div class="summary-grid">
+      <div class="summary-field"><label>Project Name</label><span>{{project.name}}</span></div>
+      <div class="summary-field"><label>Damage Type</label><span style="text-transform:capitalize;">{{project.type}}</span></div>
+      <div class="summary-field"><label>Status</label><span style="text-transform:capitalize;">{{project.status}}</span></div>
+      <div class="summary-field"><label>Client</label><span>{{client.name}}</span></div>
+      <div class="summary-field"><label>Property Address</label><span>{{project.propertyAddress}}</span></div>
+      <div class="summary-field"><label>Property Type</label><span style="text-transform:capitalize;">{{project.propertyType}}</span></div>
+      <div class="summary-field mono"><label>Insurance Company</label><span>{{#if project.insuranceCompany}}{{project.insuranceCompany}}{{else}}—{{/if}}</span></div>
+      <div class="summary-field mono"><label>Claim Number</label><span>{{#if project.claimNumber}}{{project.claimNumber}}{{else}}—{{/if}}</span></div>
+      <div class="summary-field"><label>Lead Technician</label><span>{{#if leadTechnician}}{{leadTechnician.name}}{{else}}—{{/if}}</span></div>
+      <div class="summary-field"><label>Date of Loss</label><span>{{formatDate project.dateOfLoss}}</span></div>
+      <div class="summary-field"><label>Category of Loss</label><span>{{#if project.categoryOfLoss}}{{project.categoryOfLoss}}{{else}}—{{/if}}</span></div>
+      <div class="summary-field"><label>Class of Water</label><span>{{#if project.classOfWater}}{{project.classOfWater}}{{else}}—{{/if}}</span></div>
+    </div>
+  </div>
+
+  <!-- ── KPI STRIP ── -->
+  <div class="kpi-strip">
+    <div class="kpi-box {{#if (gt maxDamageScore 7)}}warn{{/if}}">
+      <div class="val">{{maxDamageScore}}<span style="font-size:13px;font-weight:400;">/10</span></div>
+      <div class="lbl">Max Damage Score</div>
+    </div>
+    <div class="kpi-box">
+      <div class="val">{{rooms.length}}</div>
+      <div class="lbl">Rooms Documented</div>
+    </div>
+    <div class="kpi-box">
+      <div class="val">{{totalPhotos}}</div>
+      <div class="lbl">Photos Submitted</div>
+    </div>
+    <div class="kpi-box">
+      <div class="val">{{progressPct}}<span style="font-size:13px;font-weight:400;">%</span></div>
+      <div class="lbl">Project Progress</div>
+    </div>
+  </div>
+
+  <!-- ── PROGRESS ── -->
+  <div class="progress-wrap">
+    <div class="progress-label"><span>Project Progress</span><span>{{completedMilestones}} of {{totalMilestones}} milestones</span></div>
+    <div class="progress-bar"><div class="progress-fill" style="width:{{progressPct}}%;"></div></div>
+  </div>
+
+  <!-- ── AI EXECUTIVE SUMMARY ── -->
+  {{#if project.aiSummary}}
+  <div class="narrative">
+    <div class="narrative-label">✦ AI-Generated Executive Summary</div>
+    {{project.aiSummary}}
+  </div>
+  {{else}}
+  {{#if project.notes}}
+  <div class="narrative">
+    <div class="narrative-label">Adjuster Notes</div>
+    {{project.notes}}
+  </div>
+  {{/if}}
+  {{/if}}
+
+  <!-- ── ROOM-BY-ROOM DOCUMENTATION ── -->
+  <div class="section-title">Room-by-Room Documentation</div>
+
+  {{#each rooms}}
+  <div class="room-card">
+    <div class="room-header">
+      <div>
+        <div class="room-name">{{this.label}}</div>
+        <div class="room-meta">
+          {{this.photos.length}} photos · {{this.moistureLogs.length}} moisture readings
+          {{#if this.affectedAreaSqFt}} · {{this.affectedAreaSqFt}} sq ft affected{{/if}}
+        </div>
+      </div>
+      <div class="room-score">
+        <div class="score-val {{#if (gte this.damageScore 8)}}score-critical{{else}}{{#if (gte this.damageScore 6)}}score-severe{{else}}{{#if (gte this.damageScore 4)}}score-moderate{{else}}score-minor{{/if}}{{/if}}{{/if}}">
+          {{dmgLabel this.damageScore}}
+        </div>
+        <div class="score-lbl">Damage Score {{this.damageScore}}/10</div>
+      </div>
+    </div>
+
+    <!-- AI Narrative or notes -->
+    {{#if this.aiNarrative}}
+    <div style="background:#EFF6FF;border-left:2.5px solid #3B82F6;border-radius:0 6px 6px 0;padding:10px 14px;margin-bottom:14px;font-size:12.5px;line-height:1.75;color:#1E293B;">
+      <div style="font-size:9.5px;font-weight:700;color:#2563EB;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">✦ AI-Enhanced Narrative</div>
+      {{this.aiNarrative}}
+    </div>
+    {{else}}
+    {{#if this.notes}}
+    <div style="background:#F8FAFC;border-left:2.5px solid #CBD5E1;border-radius:0 6px 6px 0;padding:10px 14px;margin-bottom:14px;font-size:12.5px;line-height:1.75;color:#1E293B;font-style:italic;">
+      {{this.notes}}
+    </div>
+    {{/if}}
+    {{/if}}
+
+    <!-- Photos -->
+    {{#if this.photos}}
+    <div class="photo-grid">
+      {{#each (chunked this.photos 3)}}
+      {{#each this}}
+      <div class="photo-item">
+        <img src="{{this.url}}" alt="{{this.caption}}" loading="eager"/>
+        <div class="photo-caption">
+          {{this.caption}}
+          {{#if this.moistureReading}}<br><span class="photo-mc">MC: {{this.moistureReading}}%</span>{{/if}}
+        </div>
+      </div>
+      {{/each}}
+      {{/each}}
+    </div>
+    {{/if}}
+
+    <!-- Moisture readings -->
+    {{#if this.moistureLogs}}
+    <div style="margin-top:14px;">
+      <div style="font-size:10px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Moisture Readings</div>
+      <table class="moisture-table">
+        <thead><tr><th>Location</th><th>Day</th><th>Reading</th><th>Status</th></tr></thead>
+        <tbody>
+          {{#each this.moistureLogs}}
+          <tr>
+            <td>{{this.location}}</td>
+            <td style="font-family:'Roboto Mono',monospace;">Day {{this.dayNumber}}</td>
+            <td style="font-family:'Roboto Mono',monospace;font-weight:700;">{{this.value}}%</td>
+            <td>
+              <span class="mc-badge {{mcStatus this.value}}">{{mcStatus this.value}}</span>
+            </td>
+          </tr>
+          {{/each}}
+        </tbody>
+      </table>
+    </div>
+    {{/if}}
+  </div>
+  {{/each}}
+
+  <!-- ── MILESTONES ── -->
+  {{#if milestones}}
+  <div class="section-title">Project Milestones</div>
+  {{#each milestones}}
+  <div class="milestone-row">
+    {{#if this.isCompleted}}
+    <div class="ms-dot-done"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17 4 12"/></svg></div>
+    {{else}}
+    <div class="ms-dot-pending"></div>
+    {{/if}}
+    <div class="ms-label">{{this.label}}</div>
+    <div class="ms-date">{{formatDate this.scheduledDate}}</div>
+    <span class="ms-status {{#if this.isCompleted}}ms-done{{else}}ms-pending{{/if}}">
+      {{#if this.isCompleted}}✓ Complete{{else}}Pending{{/if}}
+    </span>
+  </div>
+  {{/each}}
+  {{/if}}
+
+  <!-- ── SIGNATURES ── -->
+  {{#if project.signatures}}
+  <div class="section-title">Signatures & Authorizations</div>
+  {{#each project.signatures}}
+  <div class="sig-block">
+    {{#if this.storageKey}}
+    <img class="sig-image" src="{{this.signatureUrl}}" alt="Signature of {{this.signerName}}"/>
+    {{/if}}
+    <div class="sig-meta">
+      <div class="sig-name">
+        {{this.signerName}}
+        <span class="sig-verified">✓ Verified</span>
+      </div>
+      <div class="sig-type">{{this.documentTitle}}</div>
+      <div class="sig-time">
+        Signed: {{formatDate this.signedAt}}
+        {{#if this.signedIpAddress}} · IP: {{this.signedIpAddress}}{{/if}}
+      </div>
+    </div>
+  </div>
+  {{/each}}
+  {{/if}}
+
+  <!-- ── CERTIFICATION ── -->
+  <div style="background:#F0FDFA;border:1px solid #99F6E4;border-radius:10px;padding:18px 20px;margin-top:28px;">
+    <div style="font-size:11px;font-weight:700;color:#0891B2;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;">Technician Certification</div>
+    <p style="font-size:12.5px;color:#1E293B;line-height:1.8;">
+      I hereby certify that this report accurately represents the conditions observed at the property listed above.
+      All moisture readings were taken with calibrated instruments, and all photographs are authentic representations
+      of the damage documented. This assessment has been prepared in accordance with IICRC S500 Standard and Reference
+      Guide for Professional Water Damage Restoration (current edition).
+    </p>
+    <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+      <div>
+        <div style="border-top:1.5px solid #CBD5E1;padding-top:8px;margin-top:8px;">
+          <div style="font-size:12px;font-weight:700;color:#0F172A;">{{#if leadTechnician}}{{leadTechnician.name}}{{else}}Lead Technician{{/if}}</div>
+          <div style="font-size:11px;color:#64748B;">Lead Restoration Technician</div>
+          {{#if leadTechnician}}
+          <div style="font-size:10.5px;color:#94A3B8;font-family:'Roboto Mono',monospace;margin-top:3px;">{{company.licenseNumber}}</div>
+          {{/if}}
+        </div>
+      </div>
+      <div>
+        <div style="border-top:1.5px solid #CBD5E1;padding-top:8px;margin-top:8px;">
+          <div style="font-size:12px;font-weight:700;color:#0F172A;">{{company.name}}</div>
+          <div style="font-size:11px;color:#64748B;">Licensed Restoration Contractor</div>
+          <div style="font-size:10.5px;color:#94A3B8;font-family:'Roboto Mono',monospace;margin-top:3px;">Report generated: {{formatDate generatedAt}}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── FOOTER ── -->
+  <div class="report-footer">
+    <span>{{company.name}} · {{company.licenseNumber}}</span>
+    <span>Report {{reportId}} · {{formatDate generatedAt}}</span>
+  </div>
+  <div class="footer-compliance">
+    This document has been prepared in accordance with IICRC S500/S520 standards.
+    Confidential — For insurance claim purposes only. Generated by RestoraFlow v5 (self-hosted).
+  </div>
+
+</div>
+</body>
+</html>

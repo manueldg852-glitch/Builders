@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Moisture Drift — RestoraFlow Generative Art</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F7F8FA; --surface: #FFFFFF; --line: #E4E7ED;
+    --t1: #0D0F12; --t2: #3D4756; --t3: #7A8698; --t4: #B0BAC9;
+    --blue: #0061FF; --red: #E5352A; --green: #1A8A4A; --amber: #D08D0A;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Poppins', sans-serif; background: var(--bg); color: var(--t1); height: 100vh; overflow: hidden; }
+  .shell { display: flex; height: 100vh; }
+
+  /* Canvas area */
+  .canvas-wrap {
+    flex: 1; position: relative;
+    background: #FAFBFC; border-right: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: center;
+  }
+  #canvas-container canvas { display: block; }
+  .canvas-label {
+    position: absolute; bottom: 16px; left: 16px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; color: var(--t4); letter-spacing: .5px;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    width: 260px; flex-shrink: 0;
+    background: var(--surface); border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; overflow-y: auto;
+  }
+  .sidebar-header {
+    padding: 18px 18px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .sidebar-title { font-size: 14px; font-weight: 600; color: var(--t1); margin-bottom: 4px; }
+  .sidebar-sub   { font-size: 11.5px; color: var(--t3); line-height: 1.5; }
+
+  .section { padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .section-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9.5px; font-weight: 500; color: var(--t4);
+    text-transform: uppercase; letter-spacing: .9px;
+    margin-bottom: 12px;
+  }
+
+  /* Seed controls */
+  .seed-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .seed-display {
+    flex: 1; font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px; font-weight: 500; color: var(--t1);
+    background: var(--bg); border: 1px solid var(--line);
+    border-radius: 4px; padding: 6px 10px; text-align: center;
+  }
+  .seed-input {
+    width: 100%; font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px; color: var(--t1);
+    background: var(--bg); border: 1px solid var(--line);
+    border-radius: 4px; padding: 6px 10px;
+    outline: none; margin-top: 4px;
+  }
+  .seed-input:focus { border-color: var(--t1); }
+  .seed-btns { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin-top: 6px; }
+
+  /* Sliders */
+  .control { margin-bottom: 14px; }
+  .control:last-child { margin-bottom: 0; }
+  .control-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+  .control-label { font-size: 11.5px; color: var(--t2); font-weight: 500; }
+  .control-value { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--t3); }
+  input[type=range] {
+    -webkit-appearance: none; width: 100%; height: 3px;
+    background: var(--line); border-radius: 2px; outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px;
+    border-radius: 50%; background: var(--t1); cursor: pointer;
+    border: 2px solid white; box-shadow: 0 1px 4px rgba(0,0,0,.15);
+    transition: transform .1s;
+  }
+  input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+
+  /* Color swatches */
+  .color-grid { display: flex; gap: 8px; flex-wrap: wrap; }
+  .swatch {
+    width: 28px; height: 28px; border-radius: 4px; cursor: pointer;
+    border: 2px solid transparent; transition: transform .1s, border-color .1s;
+    position: relative;
+  }
+  .swatch:hover { transform: scale(1.1); }
+  .swatch.active { border-color: var(--t1); }
+  .swatch label {
+    position: absolute; bottom: -16px; left: 50%;
+    transform: translateX(-50%); font-size: 9px;
+    color: var(--t4); white-space: nowrap;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 5px; border: 1px solid var(--line);
+    border-radius: 4px; background: var(--surface);
+    color: var(--t2); font-size: 11px; font-weight: 500;
+    cursor: pointer; padding: 6px 10px;
+    transition: all .1s; font-family: 'Poppins', sans-serif;
+  }
+  .btn:hover { border-color: var(--t1); color: var(--t1); }
+  .btn-primary { background: var(--t1); color: #fff; border-color: var(--t1); }
+  .btn-primary:hover { background: #1a1d24; }
+  .action-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .action-btns .btn-dl { grid-column: 1/-1; }
+
+  /* Palette presets */
+  .presets { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .preset-btn {
+    font-size: 10.5px; padding: 4px 9px;
+    border-radius: 3px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--bg);
+    color: var(--t3); transition: all .1s;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .preset-btn:hover { border-color: var(--t1); color: var(--t1); }
+  .preset-btn.active { background: var(--t1); color: #fff; border-color: var(--t1); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Canvas -->
+  <div class="canvas-wrap">
+    <div id="canvas-container"></div>
+    <div class="canvas-label" id="canvas-info">MOISTURE DRIFT — SEED 1337</div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">Moisture Drift</div>
+      <div class="sidebar-sub">Algorithmic visualization of water damage propagation patterns through structural materials.</div>
+    </div>
+
+    <!-- Seed -->
+    <div class="section">
+      <div class="section-label">Seed</div>
+      <div class="seed-row">
+        <div class="seed-display" id="seed-display">1337</div>
+      </div>
+      <input class="seed-input" type="number" id="seed-input" placeholder="Jump to seed…" min="1" max="99999">
+      <div class="seed-btns">
+        <button class="btn" onclick="prevSeed()">← Prev</button>
+        <button class="btn" onclick="rndSeed()">⟳ Rand</button>
+        <button class="btn" onclick="nextSeed()">Next →</button>
+      </div>
+    </div>
+
+    <!-- Parameters -->
+    <div class="section">
+      <div class="section-label">Parameters</div>
+
+      <div class="control">
+        <div class="control-row">
+          <span class="control-label">Particles</span>
+          <span class="control-value" id="count-val">1800</span>
+        </div>
+        <input type="range" id="count" min="400" max="3600" step="200" value="1800"
+          oninput="updateParam('count',+this.value)">
+      </div>
+
+      <div class="control">
+        <div class="control-row">
+          <span class="control-label">Noise Scale</span>
+          <span class="control-value" id="scale-val">0.003</span>
+        </div>
+        <input type="range" id="scale" min="0.0008" max="0.008" step="0.0002" value="0.003"
+          oninput="updateParam('scale',+this.value)">
+      </div>
+
+      <div class="control">
+        <div class="control-row">
+          <span class="control-label">Flow Speed</span>
+          <span class="control-value" id="speed-val">1.4</span>
+        </div>
+        <input type="range" id="speed" min="0.3" max="3.0" step="0.1" value="1.4"
+          oninput="updateParam('speed',+this.value)">
+      </div>
+
+      <div class="control">
+        <div class="control-row">
+          <span class="control-label">Trail Length</span>
+          <span class="control-value" id="trail-val">0.96</span>
+        </div>
+        <input type="range" id="trail" min="0.85" max="0.995" step="0.005" value="0.96"
+          oninput="updateParam('trail',+this.value)">
+      </div>
+
+      <div class="control">
+        <div class="control-row">
+          <span class="control-label">Moisture Sources</span>
+          <span class="control-value" id="sources-val">3</span>
+        </div>
+        <input type="range" id="sources" min="1" max="7" step="1" value="3"
+          oninput="updateParam('sources',+this.value)">
+      </div>
+
+      <div class="control">
+        <div class="control-row">
+          <span class="control-label">Octaves</span>
+          <span class="control-value" id="octaves-val">4</span>
+        </div>
+        <input type="range" id="octaves" min="1" max="8" step="1" value="4"
+          oninput="updateParam('octaves',+this.value)">
+      </div>
+    </div>
+
+    <!-- Palette presets -->
+    <div class="section">
+      <div class="section-label">Palette</div>
+      <div class="presets">
+        <button class="preset-btn active" onclick="setPalette('water')"   id="p-water">Water</button>
+        <button class="preset-btn"        onclick="setPalette('fire')"    id="p-fire">Fire</button>
+        <button class="preset-btn"        onclick="setPalette('mold')"    id="p-mold">Mold</button>
+        <button class="preset-btn"        onclick="setPalette('storm')"   id="p-storm">Storm</button>
+        <button class="preset-btn"        onclick="setPalette('void')"    id="p-void">Void</button>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="section">
+      <div class="section-label">Actions</div>
+      <div class="action-btns">
+        <button class="btn btn-primary" onclick="regenerate()">Regenerate</button>
+        <button class="btn" onclick="resetDefaults()">Reset</button>
+        <button class="btn btn-dl" onclick="downloadPNG()">↓ Download PNG</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Palettes ──────────────────────────────────────────────
+const PALETTES = {
+  water: {
+    bg:      [247, 248, 250],
+    cols:    [[0,97,255,180],[7,184,206,160],[99,155,255,140],[0,40,120,100],[200,220,255,80]],
+    label:   'Water Damage'
+  },
+  fire: {
+    bg:      [248, 246, 244],
+    cols:    [[229,53,42,180],[240,140,40,160],[255,200,80,140],[160,30,20,100],[255,240,220,80]],
+    label:   'Fire & Smoke'
+  },
+  mold: {
+    bg:      [246, 249, 247],
+    cols:    [[8,145,178,180],[16,185,129,160],[80,200,160,140],[0,80,60,100],[180,240,220,80]],
+    label:   'Mold'
+  },
+  storm: {
+    bg:      [247, 246, 250],
+    cols:    [[124,58,237,180],[99,102,241,160],[168,85,247,140],[60,20,140,100],[220,210,255,80]],
+    label:   'Storm'
+  },
+  void: {
+    bg:      [252, 252, 253],
+    cols:    [[13,15,18,200],[61,71,86,160],[120,130,150,120],[180,185,200,80],[220,225,235,60]],
+    label:   'Void'
+  }
+};
+
+// ── State ─────────────────────────────────────────────────
+let currentSeed = 1337;
+let currentPalette = 'water';
+let params = {
+  count: 1800, scale: 0.003, speed: 1.4,
+  trail: 0.96, sources: 3, octaves: 4
+};
+
+// ── p5 Sketch ─────────────────────────────────────────────
+let sketch = (p) => {
+  let particles = [];
+  let sources = [];
+  let W, H;
+  let noiseZ = 0;
+
+  class Particle {
+    constructor() { this.reset(); }
+    reset() {
+      // Spawn near a moisture source
+      let s = sources[Math.floor(p.random(sources.length))];
+      this.x = s.x + p.random(-80, 80);
+      this.y = s.y + p.random(-80, 80);
+      this.age = 0;
+      this.maxAge = p.random(120, 340);
+      this.speed = p.random(0.5, 1.8) * params.speed;
+      this.pal = PALETTES[currentPalette];
+      this.col = this.pal.cols[Math.floor(p.random(this.pal.cols.length))];
+      this.size = p.random(0.6, 2.2);
+      this.life = 1;
+    }
+
+    update() {
+      // Multi-octave flow field
+      let angle = 0;
+      let amp = 1;
+      let freq = params.scale;
+      for (let o = 0; o < params.octaves; o++) {
+        angle += p.noise(this.x * freq, this.y * freq, noiseZ) * p.TWO_PI * 2 * amp;
+        freq *= 2.1;
+        amp *= 0.5;
+      }
+
+      // Add gravitational pull toward nearest source
+      let nearest = sources.reduce((best, s) => {
+        let d = p.dist(this.x, this.y, s.x, s.y);
+        return d < best.d ? { s, d } : best;
+      }, { s: sources[0], d: Infinity });
+
+      let pull = p.createVector(nearest.s.x - this.x, nearest.s.y - this.y);
+      let pullStrength = p.map(nearest.d, 0, 300, 0.08, 0, true);
+
+      let vx = p.cos(angle) * this.speed + pull.x * pullStrength;
+      let vy = p.sin(angle) * this.speed + pull.y * pullStrength;
+
+      this.x += vx;
+      this.y += vy;
+      this.age++;
+      this.life = 1 - this.age / this.maxAge;
+    }
+
+    draw() {
+      let alpha = this.col[3] * this.life * 0.85;
+      p.stroke(this.col[0], this.col[1], this.col[2], alpha);
+      p.strokeWeight(this.size * this.life);
+      p.point(this.x, this.y);
+    }
+
+    isDead() {
+      return this.age >= this.maxAge ||
+        this.x < -20 || this.x > W + 20 ||
+        this.y < -20 || this.y > H + 20;
+    }
+  }
+
+  function initSources() {
+    p.randomSeed(currentSeed);
+    p.noiseSeed(currentSeed);
+    sources = [];
+    // Place sources at plausible damage origin points
+    // (pipe connections, corners, perimeter walls — implied by placement)
+    for (let i = 0; i < params.sources; i++) {
+      // Bias toward edges (wall moisture)
+      let edge = p.random() < 0.5;
+      let sx, sy;
+      if (edge) {
+        let side = Math.floor(p.random(4));
+        if      (side === 0) { sx = p.random(W * .1, W * .9); sy = p.random(H * .05, H * .2); }
+        else if (side === 1) { sx = p.random(W * .8, W * .95); sy = p.random(H * .1, H * .9); }
+        else if (side === 2) { sx = p.random(W * .1, W * .9); sy = p.random(H * .8, H * .95); }
+        else                 { sx = p.random(W * .05, W * .2); sy = p.random(H * .1, H * .9); }
+      } else {
+        sx = p.random(W * .2, W * .8);
+        sy = p.random(H * .2, H * .8);
+      }
+      sources.push({ x: sx, y: sy, strength: p.random(0.5, 1.5) });
+    }
+  }
+
+  function reset() {
+    let pal = PALETTES[currentPalette];
+    p.background(pal.bg[0], pal.bg[1], pal.bg[2]);
+    particles = [];
+    initSources();
+    noiseZ = p.random(1000);
+    p.randomSeed(currentSeed + 1);
+    for (let i = 0; i < params.count; i++) particles.push(new Particle());
+  }
+
+  p.setup = () => {
+    let wrap = document.getElementById('canvas-container');
+    let parent = wrap.parentElement;
+    W = parent.clientWidth;
+    H = parent.clientHeight;
+    let cnv = p.createCanvas(W, H);
+    cnv.parent('canvas-container');
+    p.colorMode(p.RGB, 255, 255, 255, 255);
+    p.noFill();
+    reset();
+  };
+
+  p.draw = () => {
+    // Trail fade
+    let pal = PALETTES[currentPalette];
+    p.fill(pal.bg[0], pal.bg[1], pal.bg[2], (1 - params.trail) * 255);
+    p.noStroke();
+    p.rect(0, 0, W, H);
+    p.noFill();
+
+    // Update & draw particles
+    let dead = 0;
+    for (let i = particles.length - 1; i >= 0; i--) {
+      particles[i].update();
+      particles[i].draw();
+      if (particles[i].isDead()) {
+        particles[i] = new Particle();
+        dead++;
+      }
+    }
+
+    noiseZ += 0.0003;
+
+    // Draw source halos (subtle)
+    sources.forEach(s => {
+      let r = p.sin(p.frameCount * 0.02 + s.strength * 3) * 8 + 20;
+      p.stroke(pal.cols[0][0], pal.cols[0][1], pal.cols[0][2], 18);
+      p.strokeWeight(1);
+      p.noFill();
+      p.ellipse(s.x, s.y, r * 2, r * 2);
+    });
+  };
+
+  p.keyPressed = () => {
+    if (p.key === 'r' || p.key === 'R') reset();
+    if (p.key === 'n' || p.key === 'N') { currentSeed++; syncSeed(); reset(); }
+    if (p.key === 'p' || p.key === 'P') { currentSeed = Math.max(1, currentSeed-1); syncSeed(); reset(); }
+  };
+
+  p.windowResized = () => {
+    let parent = document.getElementById('canvas-container').parentElement;
+    W = parent.clientWidth;
+    H = parent.clientHeight;
+    p.resizeCanvas(W, H);
+    reset();
+  };
+
+  // Expose reset for external calls
+  window._p5reset = () => { reset(); };
+  window._p5save = () => { p.save(`moisture-drift-seed${currentSeed}.png`); };
+};
+
+let myp5 = new p5(sketch);
+
+// ── Controls ──────────────────────────────────────────────
+function syncSeed() {
+  document.getElementById('seed-display').textContent = currentSeed;
+  document.getElementById('seed-input').value = '';
+  document.getElementById('canvas-info').textContent =
+    `MOISTURE DRIFT — SEED ${currentSeed} — ${PALETTES[currentPalette].label.toUpperCase()}`;
+}
+
+function prevSeed() {
+  currentSeed = Math.max(1, currentSeed - 1);
+  syncSeed(); if(window._p5reset) window._p5reset();
+}
+function nextSeed() {
+  currentSeed = currentSeed + 1;
+  syncSeed(); if(window._p5reset) window._p5reset();
+}
+function rndSeed() {
+  currentSeed = Math.floor(Math.random() * 9999) + 1;
+  syncSeed(); if(window._p5reset) window._p5reset();
+}
+document.getElementById('seed-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    let v = parseInt(e.target.value);
+    if (!isNaN(v) && v > 0) { currentSeed = v; syncSeed(); if(window._p5reset) window._p5reset(); }
+  }
+});
+
+function updateParam(key, val) {
+  params[key] = val;
+  let disp = document.getElementById(key + '-val');
+  if (disp) disp.textContent = val;
+  if (key === 'sources' && window._p5reset) window._p5reset();
+}
+
+function setPalette(name) {
+  currentPalette = name;
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('p-' + name)?.classList.add('active');
+  document.getElementById('canvas-info').textContent =
+    `MOISTURE DRIFT — SEED ${currentSeed} — ${PALETTES[name].label.toUpperCase()}`;
+  if (window._p5reset) window._p5reset();
+}
+
+function regenerate() { if(window._p5reset) window._p5reset(); }
+function resetDefaults() {
+  params = { count: 1800, scale: 0.003, speed: 1.4, trail: 0.96, sources: 3, octaves: 4 };
+  ['count','scale','speed','trail','sources','octaves'].forEach(k => {
+    let el = document.getElementById(k);
+    if (el) el.value = params[k];
+    let dv = document.getElementById(k + '-val');
+    if (dv) dv.textContent = params[k];
+  });
+  if(window._p5reset) window._p5reset();
+}
+function downloadPNG() { if(window._p5save) window._p5save(); }
+</script>
+</body>
+</html>

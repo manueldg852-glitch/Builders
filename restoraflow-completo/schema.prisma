@@ -1,0 +1,723 @@
+// RestoraFlow v5 — Prisma ORM Schema
+// Database: PostgreSQL 16
+// ORM: Prisma 5.x with full relation model
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions", "fullTextSearch"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgcrypto, pg_trgm, uuid_ossp]
+}
+
+// ─────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  TECHNICIAN
+  ESTIMATOR
+  CLIENT
+}
+
+enum ProjectType {
+  WATER_DAMAGE
+  FIRE_DAMAGE
+  MOLD_REMEDIATION
+  STORM_DAMAGE
+  BIOHAZARD
+  ASBESTOS
+}
+
+enum ProjectStatus {
+  ASSESSMENT
+  ACTIVE
+  PENDING_REVIEW
+  COMPLETED
+  ARCHIVED
+  ON_HOLD
+}
+
+enum Priority {
+  EMERGENCY
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum PropertyType {
+  RESIDENTIAL
+  COMMERCIAL
+  MULTI_FAMILY
+  INDUSTRIAL
+  MUNICIPAL
+}
+
+enum EquipmentType {
+  DEHUMIDIFIER
+  AIR_MOVER
+  AIR_SCRUBBER
+  HEPA_VACUUM
+  OZONE_GENERATOR
+  DESICCANT
+  MOISTURE_METER
+  THERMAL_CAMERA
+}
+
+enum SignatureStatus {
+  PENDING
+  SENT
+  SIGNED
+  DECLINED
+  EXPIRED
+}
+
+enum DocumentType {
+  AUTHORIZATION
+  COMPLETION
+  CHANGE_ORDER
+  INSURANCE_FORM
+  CERTIFICATE
+  ESTIMATE
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  VIEWED
+  PAID
+  OVERDUE
+  DISPUTED
+  VOID
+}
+
+enum PhotoCategory {
+  DAMAGE
+  BEFORE
+  AFTER
+  EQUIPMENT
+  PROGRESS
+  OVERHEAD
+}
+
+enum JobStatus {
+  WAITING
+  ACTIVE
+  COMPLETED
+  FAILED
+  DELAYED
+}
+
+// ─────────────────────────────────────────────────────────────
+// CORE MODELS
+// ─────────────────────────────────────────────────────────────
+
+model Company {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String
+  slug            String    @unique
+  logoUrl         String?
+  licenseNumber   String?
+  taxId           String?
+  address         String?
+  phone           String?
+  email           String?
+  website         String?
+  insurance       String?
+  settings        Json      @default("{}")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  users           User[]
+  projects        Project[]
+  equipment       Equipment[]
+  invoices        Invoice[]
+
+  @@map("companies")
+}
+
+model User {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String    @db.Uuid
+  email           String    @unique
+  passwordHash    String
+  name            String
+  phone           String?
+  role            UserRole  @default(TECHNICIAN)
+  avatarUrl       String?
+  certifications  String[]  @default([])
+  location        String?
+  isActive        Boolean   @default(true)
+  lastLoginAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company         Company   @relation(fields: [companyId], references: [id])
+  sessions        Session[]
+  leadProjects    Project[] @relation("LeadTechnician")
+  assignedProjects ProjectTechnician[]
+  uploadedPhotos  Photo[]
+  moistureLogs    MoistureLog[]
+  placedEquipment Equipment[] @relation("PlacedBy")
+  signatures      Signature[] @relation("SignatureCapture")
+  activityLogs    ActivityLog[]
+  jobQueue        BackgroundJob[]
+
+  @@index([companyId])
+  @@index([email])
+  @@map("users")
+}
+
+model Session {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String    @db.Uuid
+  token       String    @unique
+  expiresAt   DateTime
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime  @default(now())
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("sessions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// PROJECT MODELS
+// ─────────────────────────────────────────────────────────────
+
+model Project {
+  id                    String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId             String         @db.Uuid
+  leadTechnicianId      String?        @db.Uuid
+  clientId              String?        @db.Uuid
+
+  // Basic info
+  name                  String
+  slug                  String
+
+  // Property
+  propertyAddress       String
+  propertyCity          String?
+  propertyState         String?
+  propertyZip           String?
+  propertyType          PropertyType   @default(RESIDENTIAL)
+  affectedAreaSqFt      Decimal?       @db.Decimal(10, 2)
+
+  // Classification
+  type                  ProjectType
+  status                ProjectStatus  @default(ASSESSMENT)
+  priority              Priority       @default(MEDIUM)
+  categoryOfLoss        String?
+  classOfWater          String?        // IICRC class 1-4
+
+  // Insurance
+  claimNumber           String?
+  insuranceCompany      String?
+  insuranceAdjusterName String?
+  insuranceAdjusterPhone String?
+  dateOfLoss            DateTime?
+  policyNumber          String?
+
+  // Financial
+  estimatedValue        Decimal        @default(0) @db.Decimal(12, 2)
+  invoicedAmount        Decimal        @default(0) @db.Decimal(12, 2)
+  paidAmount            Decimal        @default(0) @db.Decimal(12, 2)
+
+  // Notes & AI
+  notes                 String?        @db.Text
+  aiSummary             String?        @db.Text
+  aiSummaryGeneratedAt  DateTime?
+
+  // Dates
+  estimatedCompletionDate DateTime?
+  actualCompletionDate    DateTime?
+  reportGeneratedAt       DateTime?
+
+  // Report
+  reportUrl             String?
+  reportVersion         Int            @default(0)
+
+  // Offline sync
+  localId               String?        // PWA local UUID before sync
+  syncVersion           Int            @default(0)
+
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  // Relations
+  company               Company        @relation(fields: [companyId], references: [id])
+  leadTechnician        User?          @relation("LeadTechnician", fields: [leadTechnicianId], references: [id])
+  client                Client?        @relation(fields: [clientId], references: [id])
+  technicians           ProjectTechnician[]
+  rooms                 Room[]
+  milestones            Milestone[]
+  signatures            Signature[]
+  documents             ProjectDocument[]
+  magicLinks            MagicLink[]
+  invoices              Invoice[]
+  equipment             Equipment[]
+  activityLogs          ActivityLog[]
+  backgroundJobs        BackgroundJob[]
+  changeOrders          ChangeOrder[]
+
+  @@unique([companyId, slug])
+  @@index([companyId])
+  @@index([leadTechnicianId])
+  @@index([clientId])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+  @@map("projects")
+}
+
+model ProjectTechnician {
+  projectId     String    @db.Uuid
+  userId        String    @db.Uuid
+  assignedAt    DateTime  @default(now())
+  assignedBy    String?   @db.Uuid
+  isLead        Boolean   @default(false)
+
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user          User      @relation(fields: [userId], references: [id])
+
+  @@id([projectId, userId])
+  @@index([userId])
+  @@map("project_technicians")
+}
+
+model Client {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String    @db.Uuid
+  name            String
+  type            String    @default("residential")
+  email           String?
+  phone           String?
+  address         String?
+  insuranceCompany String?
+  notes           String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  projects        Project[]
+
+  @@index([companyId])
+  @@map("clients")
+}
+
+// ─────────────────────────────────────────────────────────────
+// DOCUMENTATION MODELS
+// ─────────────────────────────────────────────────────────────
+
+model Room {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId       String    @db.Uuid
+  type            String    // basement, kitchen, bathroom, etc.
+  label           String
+  notes           String?   @db.Text
+  aiNarrative     String?   @db.Text
+  aiNarrativeGeneratedAt DateTime?
+  damageScore     Int       @default(0) @db.SmallInt   // 1-10
+  affectedAreaSqFt Decimal? @db.Decimal(8, 2)
+  sortOrder       Int       @default(0)
+  localId         String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  photos          Photo[]
+  moistureLogs    MoistureLog[]
+  equipment       EquipmentPlacement[]
+  floorPins       FloorPin[]
+
+  @@index([projectId])
+  @@index([projectId, sortOrder])
+  @@map("rooms")
+}
+
+model Photo {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  roomId          String        @db.Uuid
+  projectId       String        @db.Uuid
+  uploadedById    String        @db.Uuid
+
+  // Storage (MinIO)
+  storageKey      String        @unique   // e.g. "photos/proj_xxx/room_xxx/uuid.webp"
+  thumbnailKey    String?                 // "thumbs/..."
+  originalKey     String?                 // original before Sharp processing
+  mimeType        String        @default("image/webp")
+  fileSizeBytes   Int?
+  width           Int?
+  height          Int?
+
+  // Metadata
+  caption         String?
+  aiCaption       String?       @db.Text
+  aiCaptionModelVersion String?
+  damageTags      String[]      @default([])
+  category        PhotoCategory @default(DAMAGE)
+  moistureReading Decimal?      @db.Decimal(5, 2)
+  isFlagged       Boolean       @default(false)
+  flagReason      String?
+
+  // Geolocation (from EXIF or device GPS)
+  geoLat          Decimal?      @db.Decimal(10, 7)
+  geoLng          Decimal?      @db.Decimal(10, 7)
+  geoAccuracyM    Decimal?      @db.Decimal(8, 2)
+  takenAt         DateTime?
+
+  // Offline sync
+  localId         String?
+  syncedAt        DateTime?
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  room            Room          @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  uploadedBy      User          @relation(fields: [uploadedById], references: [id])
+  floorPins       FloorPin[]
+
+  @@index([roomId])
+  @@index([projectId])
+  @@index([uploadedById])
+  @@index([createdAt])
+  @@map("photos")
+}
+
+model MoistureLog {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  roomId          String    @db.Uuid
+  projectId       String    @db.Uuid
+  technicianId    String    @db.Uuid
+
+  location        String    // "North wall baseline", "Floor center", etc.
+  value           Decimal   @db.Decimal(5, 2)   // moisture content %
+  instrumentUsed  String?   // "Delmhorst J-2000", etc.
+  dayNumber       Int       // Day 0, Day 1, Day 2...
+  readingDate     DateTime
+
+  createdAt       DateTime  @default(now())
+
+  room            Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  technician      User      @relation(fields: [technicianId], references: [id])
+
+  @@index([roomId])
+  @@index([projectId])
+  @@index([readingDate])
+  @@map("moisture_logs")
+}
+
+model FloorPin {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  roomId          String    @db.Uuid
+  photoId         String?   @db.Uuid
+  label           String
+  xPercent        Decimal   @db.Decimal(5, 2)   // 0-100 as % of floor plan width
+  yPercent        Decimal   @db.Decimal(5, 2)   // 0-100 as % of floor plan height
+  severity        Int       @db.SmallInt         // 1-10
+  notes           String?
+  createdAt       DateTime  @default(now())
+
+  room            Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  photo           Photo?    @relation(fields: [photoId], references: [id], onDelete: SetNull)
+
+  @@index([roomId])
+  @@map("floor_pins")
+}
+
+// ─────────────────────────────────────────────────────────────
+// EQUIPMENT MODELS
+// ─────────────────────────────────────────────────────────────
+
+model Equipment {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String          @db.Uuid
+  type            EquipmentType
+  make            String?
+  model           String
+  serialNumber    String          @unique
+  purchasedAt     DateTime?
+  purchasePrice   Decimal?        @db.Decimal(10, 2)
+  notes           String?
+  isActive        Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+
+  company         Company         @relation(fields: [companyId], references: [id])
+  placements      EquipmentPlacement[]
+
+  @@index([companyId])
+  @@index([serialNumber])
+  @@map("equipment")
+}
+
+model EquipmentPlacement {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  equipmentId     String    @db.Uuid
+  projectId       String    @db.Uuid
+  roomId          String?   @db.Uuid
+  placedById      String    @db.Uuid
+  removedById     String?   @db.Uuid
+  placedAt        DateTime
+  removedAt       DateTime?
+  notes           String?
+  dailyReadings   Json      @default("[]")   // [{date, grainDepression, litersRemoved}]
+
+  equipment       Equipment @relation(fields: [equipmentId], references: [id])
+  room            Room?     @relation(fields: [roomId], references: [id])
+  placedBy        User      @relation("PlacedBy", fields: [placedById], references: [id])
+
+  @@index([equipmentId])
+  @@index([projectId])
+  @@index([roomId])
+  @@map("equipment_placements")
+}
+
+// ─────────────────────────────────────────────────────────────
+// SIGNATURE & DOCUMENTS
+// ─────────────────────────────────────────────────────────────
+
+model Signature {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId       String          @db.Uuid
+  capturedById    String?         @db.Uuid
+  documentType    DocumentType
+  documentTitle   String
+  signerName      String
+  signerEmail     String?
+  signerPhone     String?
+
+  // Storage — signature image in MinIO
+  storageKey      String?         // "signatures/proj_xxx/sig_xxx.png"
+
+  status          SignatureStatus @default(PENDING)
+  magicToken      String?         @unique
+  tokenExpiresAt  DateTime?
+
+  // Audit
+  signedAt        DateTime?
+  signedIpAddress String?
+  signedUserAgent String?
+
+  // For remote signing
+  emailSentAt     DateTime?
+  viewedAt        DateTime?
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  capturedBy      User?           @relation("SignatureCapture", fields: [capturedById], references: [id])
+
+  @@index([projectId])
+  @@index([magicToken])
+  @@index([status])
+  @@map("signatures")
+}
+
+model ProjectDocument {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId       String    @db.Uuid
+  uploadedById    String?   @db.Uuid
+  name            String
+  type            String    // pdf, docx, xlsx, etc.
+  storageKey      String
+  fileSizeBytes   Int?
+  mimeType        String?
+  isPublic        Boolean   @default(false)   // visible in client portal
+  createdAt       DateTime  @default(now())
+
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("project_documents")
+}
+
+model MagicLink {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId       String    @db.Uuid
+  token           String    @unique @default(dbgenerated("encode(gen_random_bytes(32), 'hex')"))
+  clientName      String
+  clientEmail     String?
+  expiresAt       DateTime
+  viewCount       Int       @default(0)
+  lastViewedAt    DateTime?
+  lastViewedIp    String?
+  isRevoked       Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([projectId])
+  @@map("magic_links")
+}
+
+model Milestone {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId       String    @db.Uuid
+  label           String
+  scheduledDate   DateTime?
+  completedAt     DateTime?
+  completedById   String?   @db.Uuid
+  sortOrder       Int       @default(0)
+  isCompleted     Boolean   @default(false)
+  notes           String?
+
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("milestones")
+}
+
+// ─────────────────────────────────────────────────────────────
+// BILLING MODELS
+// ─────────────────────────────────────────────────────────────
+
+model Invoice {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String        @db.Uuid
+  projectId       String        @db.Uuid
+  clientId        String?       @db.Uuid
+  invoiceNumber   String
+  status          InvoiceStatus @default(DRAFT)
+  subtotal        Decimal       @db.Decimal(12, 2)
+  taxRate         Decimal       @default(0.10) @db.Decimal(5, 4)
+  taxAmount       Decimal       @db.Decimal(12, 2)
+  total           Decimal       @db.Decimal(12, 2)
+  notes           String?       @db.Text
+  issuedAt        DateTime?
+  dueAt           DateTime?
+  paidAt          DateTime?
+  paidAmount      Decimal?      @db.Decimal(12, 2)
+  pdfStorageKey   String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  company         Company       @relation(fields: [companyId], references: [id])
+  project         Project       @relation(fields: [projectId], references: [id])
+  lineItems       InvoiceLineItem[]
+
+  @@unique([companyId, invoiceNumber])
+  @@index([projectId])
+  @@index([status])
+  @@map("invoices")
+}
+
+model InvoiceLineItem {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  invoiceId       String    @db.Uuid
+  description     String
+  category        String    // labor, materials, equipment, disposal, subcontractor
+  quantity        Decimal   @db.Decimal(10, 3)
+  unit            String    // sq ft, hrs, unit, lot, etc.
+  unitPrice       Decimal   @db.Decimal(10, 2)
+  total           Decimal   @db.Decimal(12, 2)
+  xactimateCode   String?   // for Xactimate integration
+  sortOrder       Int       @default(0)
+
+  invoice         Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_line_items")
+}
+
+model ChangeOrder {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId       String    @db.Uuid
+  number          Int
+  description     String
+  amount          Decimal   @db.Decimal(12, 2)
+  status          String    @default("pending")
+  requestedAt     DateTime  @default(now())
+  approvedAt      DateTime?
+
+  project         Project   @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+  @@map("change_orders")
+}
+
+// ─────────────────────────────────────────────────────────────
+// SYSTEM MODELS
+// ─────────────────────────────────────────────────────────────
+
+model ActivityLog {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String    @db.Uuid
+  userId          String?   @db.Uuid
+  projectId       String?   @db.Uuid
+  action          String    // photo.uploaded, project.created, report.generated, etc.
+  entityType      String?   // project, room, photo, invoice, etc.
+  entityId        String?
+  metadata        Json      @default("{}")
+  ipAddress       String?
+  createdAt       DateTime  @default(now())
+
+  user            User?     @relation(fields: [userId], references: [id])
+  project         Project?  @relation(fields: [projectId], references: [id])
+
+  @@index([companyId])
+  @@index([projectId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
+model BackgroundJob {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String?   @db.Uuid
+  projectId       String?   @db.Uuid
+  userId          String?   @db.Uuid
+  queueName       String    // pdf-generation, image-processing, ai-narrative, sync
+  jobName         String    // generate-report, compress-photo, generate-narrative
+  payload         Json      @default("{}")
+  status          JobStatus @default(WAITING)
+  progress        Int       @default(0) @db.SmallInt
+  result          Json?
+  error           String?   @db.Text
+  attempts        Int       @default(0) @db.SmallInt
+  maxAttempts     Int       @default(3) @db.SmallInt
+  scheduledAt     DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  bullJobId       String?   // BullMQ job ID
+  createdAt       DateTime  @default(now())
+
+  user            User?     @relation(fields: [userId], references: [id])
+  project         Project?  @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+  @@index([status])
+  @@index([queueName])
+  @@index([createdAt])
+  @@map("background_jobs")
+}
+
+model OfflineSyncLog {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String    @db.Uuid
+  userId          String    @db.Uuid
+  deviceId        String
+  action          String
+  entityType      String
+  localId         String
+  serverId        String?
+  payload         Json
+  syncedAt        DateTime?
+  errorMessage    String?
+  attempts        Int       @default(0) @db.SmallInt
+  createdAt       DateTime  @default(now())
+
+  @@index([companyId])
+  @@index([userId])
+  @@index([deviceId])
+  @@index([createdAt])
+  @@map("offline_sync_logs")
+}

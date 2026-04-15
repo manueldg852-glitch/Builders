@@ -1,0 +1,269 @@
+version: '3.9'
+
+# ═══════════════════════════════════════════════════════════
+#  RestoraFlow v5 — Zero-Cost Self-Hosted Docker Stack
+#  All services run locally. $0/mo infrastructure cost.
+# ═══════════════════════════════════════════════════════════
+
+x-restart-policy: &restart-policy
+  restart: unless-stopped
+
+x-logging: &logging
+  logging:
+    driver: 'json-file'
+    options:
+      max-size: '10m'
+      max-file: '3'
+
+services:
+
+  # ── Frontend (Next.js 14 App Router) ──────────────────────
+  app:
+    <<: [*restart-policy, *logging]
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${API_URL:-http://localhost:3001}
+        NEXT_PUBLIC_WS_URL: ${WS_URL:-ws://localhost:3001}
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${API_URL:-http://api:3001}
+      NEXT_PUBLIC_MINIO_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - restoraflow-net
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.http.routers.app.rule=Host(`app.restoraflow.local`)'
+
+  # ── Backend API (NestJS — Clean Architecture) ─────────────
+  api:
+    <<: [*restart-policy, *logging]
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    ports:
+      - '3001:3001'
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://${POSTGRES_USER:-restoraflow}:${POSTGRES_PASSWORD:-rf_secure_2025}@db:5432/${POSTGRES_DB:-restoraflow}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      JWT_EXPIRES_IN: 7d
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-restoraflow}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-rf_minio_2025}
+      MINIO_BUCKET_NAME: restoraflow-photos
+      MINIO_USE_SSL: 'false'
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_NARRATIVE_MODEL: llama3
+      OLLAMA_VISION_MODEL: moondream
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://app:3000}
+      # PDF Engine
+      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      ollama:
+        condition: service_started
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3001/health']
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    volumes:
+      - api-tmp:/tmp/restoraflow
+    networks:
+      - restoraflow-net
+
+  # ── Database (PostgreSQL 16) ───────────────────────────────
+  db:
+    <<: [*restart-policy, *logging]
+    image: postgres:16-alpine
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-restoraflow}
+      POSTGRES_USER: ${POSTGRES_USER:-restoraflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rf_secure_2025}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-restoraflow} -d ${POSTGRES_DB:-restoraflow}']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - restoraflow-net
+
+  # ── Redis (BullMQ job queues + sessions) ──────────────────
+  redis:
+    <<: [*restart-policy, *logging]
+    image: redis:7.2-alpine
+    ports:
+      - '6379:6379'
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --requirepass ${REDIS_PASSWORD:-rf_redis_2025}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD:-rf_redis_2025}', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - restoraflow-net
+
+  # ── MinIO (S3-Compatible Object Storage) ──────────────────
+  minio:
+    <<: [*restart-policy, *logging]
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    ports:
+      - '9000:9000'   # S3 API
+      - '9001:9001'   # MinIO Console UI
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-restoraflow}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-rf_minio_2025}
+      MINIO_SITE_NAME: RestoraFlow-Storage
+    command: server /data --console-address ':9001'
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    networks:
+      - restoraflow-net
+
+  # ── MinIO Bucket Init ──────────────────────────────────────
+  minio-init:
+    image: minio/mc:RELEASE.2024-11-17T19-35-25Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-restoraflow}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-rf_minio_2025}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
+      mc mb --ignore-existing local/restoraflow-photos;
+      mc mb --ignore-existing local/restoraflow-reports;
+      mc mb --ignore-existing local/restoraflow-signatures;
+      mc mb --ignore-existing local/restoraflow-exports;
+      mc anonymous set download local/restoraflow-photos;
+      echo 'Buckets initialized';
+      "
+    networks:
+      - restoraflow-net
+
+  # ── Ollama (Local AI — Llama3 + Moondream2) ───────────────
+  ollama:
+    <<: [*restart-policy, *logging]
+    image: ollama/ollama:0.5.0
+    ports:
+      - '11434:11434'
+    volumes:
+      - ollama-models:/root/.ollama
+    environment:
+      OLLAMA_HOST: '0.0.0.0'
+      OLLAMA_KEEP_ALIVE: '24h'
+      OLLAMA_NUM_PARALLEL: 2
+    # GPU acceleration (uncomment if NVIDIA GPU available)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    networks:
+      - restoraflow-net
+
+  # ── Ollama Model Pull (runs once on startup) ───────────────
+  ollama-pull:
+    image: curlimages/curl:8.5.0
+    depends_on:
+      ollama:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "
+      sleep 10;
+      echo 'Pulling Llama3 for narrative generation...';
+      curl -s http://ollama:11434/api/pull -d '{\"name\":\"llama3\"}';
+      echo 'Pulling Moondream2 for vision/photo tagging...';
+      curl -s http://ollama:11434/api/pull -d '{\"name\":\"moondream\"}';
+      echo 'Models ready';
+      "
+    networks:
+      - restoraflow-net
+
+  # ── BullMQ Dashboard (job monitoring) ─────────────────────
+  bull-board:
+    <<: [*restart-policy, *logging]
+    image: deadly0/bull-board:2.1.3
+    ports:
+      - '3002:3000'
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-rf_redis_2025}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - restoraflow-net
+
+  # ── Traefik (Reverse Proxy — optional) ────────────────────
+  # traefik:
+  #   image: traefik:v3.0
+  #   ports:
+  #     - '80:80'
+  #     - '443:443'
+  #     - '8080:8080'
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #     - ./traefik.yml:/etc/traefik/traefik.yml:ro
+  #   networks:
+  #     - restoraflow-net
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  minio-data:
+    driver: local
+  ollama-models:
+    driver: local
+  api-tmp:
+    driver: local
+
+networks:
+  restoraflow-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
